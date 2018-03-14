@@ -1,0 +1,261 @@
+---
+title: "Poisson Regression (Paul's take) | Crypto Crossover Data Analysis"
+author: "Paul Magwene"
+output:
+  html_document: default
+  html_notebook: default
+  pdf_document: default
+---
+
+## Libraries
+```{r,include=FALSE}
+library(tidyverse)
+library(magrittr)
+```
+
+
+## Read the data
+
+```{r}
+crossover.data <- read_csv("~/Desktop/CRYPTO_RECOMB/FILES/Crypto-GTC-co-anova-df-min-haplotype-k6000-Feb2018.csv")
+##crossover.data <- read_csv("~/Desktop/CRYPTO_RECOMB/FILES/Crypto-GTC-co-anova-df-min-haplotype-k6000.csv")
+#crossover.data <- read_csv("~/Desktop/CRYPTO_RECOMB/FILES/Crypto-GTC-co-anova-df-min-haplotype-k2500.csv")
+
+crossover.data %<>% mutate(mating = as.factor(Cross), chrlen.Mb = Chrlen/1e6)
+head(crossover.data)
+```
+
+
+## Histograms of # crossovers b/chromosome and mating
+```{r}
+chrom_labels <- list('Chr01'="1*",'Chr02'="2*",'Chr03'="3*",'Chr04'="4*",'Chr05'="5*",'Chr06'="6",'Chr07'="7",
+                    'Chr08'="8*",'Chr09'="9*",'Chr10'="10",'Chr11'="11",'Chr12'="12",'Chr13'="13",'Chr14'="14")
+
+chrom_labeller <- function(variable,value){return(chrom_labels[value])}
+
+gcolor = c('red','black')
+uni = expression(paste(alpha,"-",alpha," unisexual"))#" crosses"))
+bi = expression(paste(bold("a"), "-", alpha," bisexual"))#" crosses"))
+
+```
+
+
+```{r}
+
+for(chrom in unique(crossover.data$Chrom)){
+  filter(crossover.data,Chrom==chrom,mating==1)->temp
+  mean(temp$N)
+  } -> mean_alpha_alpha
+```
+
+
+
+
+
+## Get mean NCO by mating and chromosome
+
+```{r}
+by.mating.chrom <- 
+  crossover.data %>%
+  group_by(mating, Chrom) %>%
+  summarize(mean.nco = mean(N), chrlen.Mb = mean(chrlen.Mb)) %>%
+  mutate(log.mean.nco = log(mean.nco))
+```
+
+## Plot of log(mean NCO) vs Chr Len w/Linear Model
+```{r}
+by.mating.chrom
+```
+
+
+```{r}
+ggplot(by.mating.chrom, aes(x = chrlen.Mb, y = log.mean.nco, color=mating)) +
+  geom_point() + 
+  geom_smooth(method = "lm") 
+```
+
+
+# Fit simple linear models
+
+```{r}
+# setup matrix of contrasts to be used for linear models
+# not really necessary in the 2 factor case
+contrasts(by.mating.chrom$mating)=contr.treatment(2) 
+```
+
+## Model with interactions
+```{r}
+mean.model.intxn <- lm(log.mean.nco ~ chrlen.Mb * mating, data = by.mating.chrom)
+summary(mean.model.intxn)
+```
+
+
+## Simple additive model
+```{r}
+mean.model <- lm(log.mean.nco ~ chrlen.Mb + mating, data = by.mating.chrom)
+summary(mean.model)
+```
+
+
+
+# Poisson Model
+
+## Interaction Model, Poisson
+
+```{r}
+poisson.model.intxn <- glm(N ~ mating*chrlen.Mb ,family="poisson", data=crossover.data)
+summary(poisson.model.intxn)
+```
+
+## Additive Model, Poisson
+
+```{r}
+poisson.model <- glm(N ~ chrlen.Mb + mating ,family="poisson", data=crossover.data)
+summary(poisson.model)
+```
+
+
+## Figures illustrating fit of Poisson model
+
+
+### Poisson regression figure w/raw CO data
+
+```{r}
+ggplot(crossover.data, aes(x = chrlen.Mb, y = N, colour = mating),guide = FALSE) +
+  geom_smooth(method = "glm", method.args = list(family = "poisson"), 
+              formula = y ~ x,guide = FALSE) + 
+  geom_jitter(alpha = 0.1,guide = FALSE) +
+  labs(x = "Chromosome Length (Mb)", y = "Number of Crossovers") + theme(text = element_text(size=20))+ scale_color_manual(values=c('red','black'),guide = FALSE) + annotate(geom="text", x=unique(crossover.data$chrlen.Mb),y=-1*c(1.5,1.5,1.5,1.5,1.5,1.5,1.5,1.5,1,1.5,1,1.5,1.5,1),
+                                                                                                                                              label=1:14,color="black")#by.mating.chrom$mean.nco[1:14]-(.15*c(1,-1,1,1,1,1,-1,1,1,1,1,1,1,1)), 
+             
+
+##ggsave("~/Desktop/CRYPTO_RECOMB/FIGS/Crypto-Possion-CO-Sep2017.png",width = 5, height = 4,dpi=600);
+```
+
+### Poisson regression figure w/mean CO data
+```{r}
+head(crossover.data)
+```
+```{r}
+by.mating.chrom$mean.nco[15:28]
+```
+```{r}
+ggplot(crossover.data, aes(x = chrlen.Mb, y = N, color = mating)) +
+  geom_smooth(method = "glm", method.args = list(family = "poisson"), 
+              formula = y ~ x) + 
+  geom_point(data = by.mating.chrom, aes(x = chrlen.Mb, y = mean.nco, color = mating)) +
+  labs(x = "Chromosome Length (Mb)", y = "Number of Crossovers") 
+```
+
+```{r,fig.width=5,fig.height=4}
+ggplot(crossover.data, aes(x = chrlen.Mb, y = N, color = mating)) +  
+  geom_smooth(method = "glm", method.args = list(family = "poisson"), 
+              formula = y ~ x) + 
+  geom_point(data = by.mating.chrom,aes(x = chrlen.Mb, y = mean.nco, color = mating)) + theme(text = element_text(size=20))+
+  labs(x = "Chromosome Length (Mb)", y = "Mean Number\nof Crossovers") + scale_color_manual(values=gcolor,labels=c(uni,bi))+#,guide = FALSE)  +
+annotate(geom="text",x=unique(crossover.data$chrlen.Mb), y=by.mating.chrom$mean.nco[1:14]-(.14*c(1,-1,1,1,1,1,1,1,1,1,1,1,1,1)), label=1:14, color="red",size = 4.1) + annotate(geom="text", x=unique(crossover.data$chrlen.Mb)[1:13], y=by.mating.chrom$mean.nco[15:27]-(.14*c(1,-1,1,-1,-1,-1,-1,-1,-1,1,-1,-1,-1)), label=1:13, color="black",size = 4.1) + annotate(geom="text", x=unique(crossover.data$chrlen.Mb)[14]-.05, y=by.mating.chrom$mean.nco[28]-(0), label=14, color="black",size = 4.1) + theme_gray(base_size = 16) + scale_y_continuous(breaks=seq(1,6,1)) + coord_cartesian(ylim = c(1,5.5),expand = T) +
+  theme(legend.position = c(0.2,0.85), legend.title = element_blank(),#c(-0.03, -0.12)
+                                 legend.text.align = .0,legend.text=element_text(size=12))+
+  scale_x_continuous(breaks=seq(0,2.5,.5)) + coord_cartesian(xlim = c(0.75,2.25),expand = T)
+ggsave("~/Desktop/CRYPTO_RECOMB/FIGS/Crypto-Possion-Mean-Feb2018.png", width = 5, height = 4, dpi = 1000, units = "in", device='png')
+```
+```{r}
+by.mating.chrom %>% filter(Chrom=='Chr01',mating==1)
+```
+
+
+
+
+
+```{r}
+by.mating.chrom
+```
+
+
+
+```{r}
+by.mating.chrom$chrlen.Mb[1:14]
+```
+```{r}
+length(crossover.data$Seg)/14 -> nsegs
+kb <- 1000
+genomesize <- sum(by.mating.chrom$chrlen.Mb[1:14])
+genomesize
+```
+
+
+```{r}
+
+by.mating.chrom %>% filter(mating==1) %>% summarise(round(1/(100*sum(mean.nco)/genomesize/kb),2))
+
+
+```
+
+
+```{r}
+by.mating.chrom %>% filter(mating==2) %>% summarise(round(1/(100*sum(mean.nco)/genomesize/kb),2))
+
+```
+
+### Predict from
+
+```{r}
+clens <- sort(unique(crossover.data$chrlen.Mb))
+
+unisexual.NCO <- 
+  predict(poisson.model,  
+         expand.grid(chrlen.Mb = clens, mating = as.factor(c(1))),
+         type="response")
+
+bisexual.NCO <- 
+  predict(poisson.model,  
+         expand.grid(chrlen.Mb = clens, mating = as.factor(c(2))),
+         type="response")
+
+
+predicted.NCO <-
+  predict(poisson.model,  
+         expand.grid(chrlen.Mb = clens, mating = as.factor(c(1,2))),
+         type="response")  
+```
+
+
+
+## Interpretation
+
+```{r}
+contrasts(crossover.data$mating)
+```
+
+Since we fit the treatment constrast, the intercept for the first group (unisexual matings) is given by the exponent of the model intercept:
+
+```{r}
+round((unisexual.intercept <- exp(poisson.model$coefficients[[1]])),2)
+```
+
+The intercept for the second group (bisexual matings) is:
+
+```{r}
+round((bisexual.intercept <- exp(poisson.model$coefficients[[1]] + poisson.model$coefficients[[3]])),2)
+```
+
+
+For a unit increase (1 Mb) in length, the  expected number of recombination events increases by a **ratio** of exp(B1) where B1 is the coefficient of the regression model with respect to chromosome length:
+
+```{r}
+round(exp(poisson.model$coefficients[[2]]),2)
+```
+
+
+# Rought draft text for describing Poisson Regression model in the ms.
+
+## For Results section
+Genome wide recombination rates were estimated using Poisson regression, modeling the number of crossovers as a function of chromosome length with the cross type as a covariate (see Methods).  This model predicts an obligatory $\sim 0.94$ crossovers per chromosome for offspring from the unisexual crosses and $\sim 1.27$ crossovers per chromosome for offspring of the bisexual cross. The expected number of crossovers is predicted to increase by a ratio of $\sim 1.79$ per Mb increase in chromosome size.
+
+
+## For Methods section
+
+Genome wide recombination rates were estimated using poisson regression, modeling the number of crossovers as a function of chromosome length with the cross type as a covariate using the "glm" function implemented in R (version 3.4.1). Our analysis indicated no support for an interaction term between chromosome length and cross type, we therefore fit a simple additive model of the form $\log(\operatorname {E} (\mbox{# of crossovers} \mid \mathbf {x} ))=\beta_0 +  \beta_1\mathbf{I}_c + \mathbf {\beta}_2\mathbf {x}$, where $\mathbf{x}$ is chromosome length and $\mathbf{I}_c$ is an indicator variable for the cross type (0 = unisexual, 1 = bisexual).
+
+The model was estimated as:  $\log(\operatorname {E} (\mbox{# of crossovers} \mid \mathbf {x} ))= -0.061 +  0.301\mathbf{I}_c +  0.580\mathbf {x}$.  The model fit failed to reject the null hypothesis of a zero intercept term ($B_0$) but there was strong support to reject the null hypothesis of zero valued $\beta_1$ and $\beta_2$ coefficients (p-values $< 10^{-10}$).
+
